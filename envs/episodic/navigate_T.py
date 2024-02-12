@@ -2,8 +2,6 @@
 
 from envs.base_env import LVMCBaseEnv
 import torch
-from tqdm import tqdm
-
 
 class NavigateT(LVMCBaseEnv):
     """
