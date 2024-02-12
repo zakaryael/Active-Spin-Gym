@@ -1,3 +1,5 @@
+# The task will be for a single particle to navigate a T shape and go upwards instead of downwards.
+
 from envs.base_env import LVMCBaseEnv
 import torch
 from tqdm import tqdm
@@ -21,7 +23,6 @@ class NavigateT(LVMCBaseEnv):
 
         # create a binary mask for the obstacles. 1 means there is an obstacle, 0 means there is not. a T shape is created.
         obstacles = torch.zeros((self.height, self.width), dtype=torch.bool)
-
         sinks = torch.zeros((self.height, self.width), dtype=torch.bool)
         sinks[0] = 1
         sinks[-1] = 1
@@ -29,7 +30,6 @@ class NavigateT(LVMCBaseEnv):
         obstacles[-cutoff:, 0:depth] = 1
         obstacles[:, -1] = 1
         self.obstacles = obstacles
-        # self.sinks = sinks
         self._initialize_simulation()
         self.simulation.add_particle(x=0, y=5)
 
@@ -38,6 +38,7 @@ class NavigateT(LVMCBaseEnv):
         # if there is a particle in the top row, give a reward of 1.0
         if particles[:, 0].any():
             return 1.0
+        # if there is particle in the bottom row, give a reward of -1.0
         elif particles[:, -1].any():
             return -1.0
         else:
