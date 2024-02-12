@@ -5,6 +5,8 @@ import torch
 from lvmc.core.simulation import Simulation
 from lvmc.core.particle_lattice import Orientation
 from typing import Tuple, Optional
+import sys
+
 
 
 class LVMCBaseEnv(gym.Env):
@@ -120,7 +122,9 @@ class LVMCBaseEnv(gym.Env):
         :param mode: The mode to render with.
         """
         if mode == "console":
-            print(self.simulation.lattice)
+            print('\033[2J\033[H', end='') # clear the terminal
+            sys.stdout.write(f'\r{self.simulation.lattice.__str__()}\033[K')
+            sys.stdout.flush() 
 
     def close(self) -> None:
         """
