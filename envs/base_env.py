@@ -31,7 +31,7 @@ class LVMCBaseEnv(gym.Env):
         control_interval: float = 1e-4,
         g: float = 1.0,
         v0: float = 100,
-        ) -> None:
+    ) -> None:
         """
         Initialize the LVMC base environment.
 
@@ -55,13 +55,12 @@ class LVMCBaseEnv(gym.Env):
         # Define the lattice topology.
         self.obstacles = torch.zeros((self.height, self.width), dtype=torch.bool)
         self.sinks = torch.zeros((self.height, self.width), dtype=torch.bool)
-        
 
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
             low=0, high=1, shape=(4, self.height, self.width), dtype=np.bool_
         )
-    
+
     def _initialize_simulation(self) -> None:
         """
         Initialize the simulation object.
@@ -83,22 +82,20 @@ class LVMCBaseEnv(gym.Env):
         :param action: The action to apply.
         :return: A tuple containing the new observation, reward, done flag, and additional info.
         """
-        
 
-        # set a clock. starts at 0.0 and increments by self.simulation.dt each step. 
+        # set a clock. starts at 0.0 and increments by self.simulation.dt each step.
         # when the clock reaches self.control_interval, apply the action.
-        
+
         clock = 0.0
         while clock < self.control_interval:
             self.simulation.run()
             clock += self.simulation.delta_t
-            
-        
-        # apply the action 
+
+        # apply the action
         self.simulation.apply_magnetic_field(action - 1)
-        
+
         self.current_time = self.simulation.t
-        
+
         reward = self.reward()
         done = self.is_done()
         info = {"time": self.current_time, "action": action}
@@ -115,7 +112,6 @@ class LVMCBaseEnv(gym.Env):
             np.random.seed(seed)
         self._initialize_simulation()
         return self._get_obs()
-
 
     def render(self, mode: str = "human") -> None:
         """
