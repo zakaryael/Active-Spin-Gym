@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pyzw
+*.pyt
+*.pyi
+*.pywz
+*.pyc
+
+# Virtual Environment
+venv/
+env/
+
+
+# VSCode
+.vscode/
+.settings/
+*.code-workspace
+*.vsix
+.vs/
+*.vscode-test/
+*.vscode-test-results/
+
+# Miscellaneous
+*.log
+*.swp
+.DS_Store
+Thumbs.db
