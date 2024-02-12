@@ -113,7 +113,7 @@ class LVMCBaseEnv(gym.Env):
         self._initialize_simulation()
         return self._get_obs()
 
-    def render(self, mode: str = "human") -> None:
+    def render(self, mode: str = "console") -> None:
         """
         Render the environment to the screen or other mode.
 
