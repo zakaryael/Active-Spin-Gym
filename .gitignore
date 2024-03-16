@@ -36,3 +36,10 @@ Thumbs.db
 
 # wandb
 wandb/
+
+# data
+data/
+*.svg
+*.png
+*.html
+*.gif
