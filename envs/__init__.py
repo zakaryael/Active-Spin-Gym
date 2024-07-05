@@ -28,3 +28,8 @@ register(
     id="ChannelFlow-v0",
     entry_point="envs.continuous.channel_flow:ChannelFlow",
 )
+
+register(
+    id="Rightward-v0",
+    entry_point="envs.episodic.rightward:Rightward",
+)
