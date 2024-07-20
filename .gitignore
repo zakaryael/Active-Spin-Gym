@@ -14,8 +14,6 @@ __pycache__/
 # Virtual Environment
 venv/
 env/
-
-
 # VSCode
 .vscode/
 .settings/
@@ -43,3 +41,4 @@ data/
 *.png
 *.html
 *.gif
+archive/
