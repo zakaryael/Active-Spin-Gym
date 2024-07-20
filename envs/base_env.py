@@ -1,9 +1,10 @@
+from lvmc.core.simulation import Simulation
+from lvmc.core.particle_lattice import Orientation
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import torch
-from lvmc.core.simulation import Simulation
-from lvmc.core.particle_lattice import Orientation
 from typing import Tuple, Optional
 import sys
 from rich.live import Live
@@ -12,6 +13,24 @@ from rich.text import Text
 from rich.layout import Layout
 from rich.panel import Panel
 from IPython.display import clear_output, display
+
+import logging
+from dataclasses import dataclass
+from logging.handlers import RotatingFileHandler
+import os
+
+
+@dataclass
+class EnvConfig:
+    width: int
+    height: int
+    control_interval: float = 1e-2
+    g: float = 1.5
+    v0: float = 100
+    max_iterations: int = int(1e5)
+    t_shape_cutoff: float = 0.4
+    t_shape_depth: float = 0.8
+    env_log_dir: Optional[str] = None
 
 
 class LVMCBaseEnv(gym.Env):
@@ -32,13 +51,7 @@ class LVMCBaseEnv(gym.Env):
 
     def __init__(
         self,
-        width: int,
-        height: int,
-        density: float,
-        control_interval: float = 1e-3,
-        g: float = 1.5,
-        v0: float = 100,
-        max_iterations: Optional[int] = int(1e5),
+        config: EnvConfig,
     ) -> None:
         """
         Initialize the LVMC base environment.
@@ -47,67 +60,85 @@ class LVMCBaseEnv(gym.Env):
         :param v0: Base transition rate for particle movement.
         :param width: Width of the particle lattice.
         :param height: Height of the particle lattice.
-        :param density: Particle density in the lattice.
         :param control_interval: Time interval for control actions.
         """
         super(LVMCBaseEnv, self).__init__()
 
-        self.g = g
-        self.v0 = v0
-        self.width = width
-        self.height = height
-        self.density = density
-        self.control_interval = control_interval
-        self.current_time = 0.0
-        self.max_iterations = 10000
-        self.current_iteration = 0
-
-        # Define the lattice topology.
-        self._set_topology()
+        self.config = config
+        self._validate_config()
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Box(
-            low=0, high=1, shape=(4, self.height, self.width), dtype=np.uint8
+        self.observation_space = spaces.MultiBinary(
+            (4, self.config.height, self.config.width)
         )
+        # self.observation_space = spaces.Box(
+        #     low=0, high=1, shape=(4, self.height, self.width), dtype=np.uint8
+        # )
         self.cumulative_reward = 0.0
-        self.max_iterations = max_iterations
-        self._initialize_simulation()
+
+        self.current_iteration = 0
+        self.info = {
+            "n_init": 0,
+            "n_particles": 0,
+            "max_iterations": self.config.max_iterations,
+            "iteration": 0,
+            "time": 0.0,
+            "action": 0,
+            "reward": 0.0,
+        }
+        self._initialize_simulation(seed=None)
 
         self.console = Console(record=True, force_terminal=True)
         self.live = None  # Placeholder for the Live instance
+        self._setup_logger()
 
-        print(
-            f"Initialized LVMCBaseEnv with width={width}, height={height}, density={density}, control_interval={control_interval}, g={g}, v0={v0}, max_iterations={max_iterations}"
+    def _setup_logger(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.setLevel(logging.INFO)
+
+        # Check if a log_dir is specified in the config
+        if hasattr(self.config, "env_log_dir") and self.config.env_log_dir is not None:
+            log_dir = self.config.env_log_dir
+        else:
+            # Create logs directory if it doesn't exist
+            if not os.path.exists("logs"):
+                os.makedirs("logs")
+            log_dir = "logs"
+
+        # File Handler
+        file_handler = RotatingFileHandler(
+            f"{log_dir}/{self.__class__.__name__}_env.log",
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=100,
         )
+        print(f"Logging to {log_dir}/{self.__class__.__name__}_env.log")
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        file_handler.setFormatter(file_formatter)
 
-    def _set_topology(self):
+        #  Add both handler to the logger
+        self.logger.addHandler(file_handler)
+
+    def _validate_config(self) -> None:
         """
-        Set the topology of the environment.
+        Validate the configuration parameters.
         """
-        topology = self.compute_lattice_topology()
+        if self.config.width <= 0 or self.config.height <= 0:
+            raise ValueError("Width and height must be positive integers.")
 
-        for key, value in topology.items():
-            setattr(self, key, value)
-
-    def _initialize_simulation(self) -> None:
+    def _initialize_simulation(self, seed: Optional[int]) -> None:
         """
         Initialize the simulation object.
         """
-        self.simulation = Simulation(
-            width=self.width,
-            height=self.height,
-            density=self.density,
-            g=self.g,
-            v0=self.v0,
+        self.simulation = (
+            Simulation(self.config.g, self.config.v0, seed=seed)
+            .add_lattice(width=self.config.width, height=self.config.height)
+            .add_control_field()
         )
-        self.simulation.lattice.set_obstacles(self.obstacles)
-        try:
-            self.simulation.lattice.set_sinks(self.sinks)
-            self.simulation.lattice.set_sources(self.sources)
-        except AttributeError:
-            pass
 
-    def step(self, action: int) -> Tuple[torch.Tensor, float, bool, dict]:
+    def step(self, action: int) -> Tuple[torch.Tensor, float, bool, bool, dict]:
         """
         Apply an action to the environment and update its state.
 
@@ -115,47 +146,51 @@ class LVMCBaseEnv(gym.Env):
         :return: A tuple containing the new observation, reward, done flag, and additional info.
         """
 
-        # set a clock. starts at 0.0 and increments by self.simulation.dt each step.
-        # when the clock reaches self.control_interval, apply the action.
+        try:
+            while self.simulation.t < (
+                self.config.control_interval * (self.current_iteration + 1)
+            ):
+                if self.is_done():
+                    break
+                self.simulation.run()
+            # apply the action
+            self.simulation.apply_magnetic_field(action - 1)
 
-        clock = 0.0
-        while clock < self.control_interval:
-            if self.is_done():
-                break
-            self.simulation.run()
-            clock += self.simulation.delta_t
+            self.current_time = self.simulation.t
+            self.current_iteration += 1
 
-        # apply the action
-        self.simulation.apply_magnetic_field(action - 1)
+            reward = self.reward()
+            self.cumulative_reward += reward
+            self.info.update(
+                {
+                    "time": self.current_time,
+                    "action": action,
+                    "density": self.simulation.lattice.density,
+                    "reward": reward,
+                    "cumulative_reward": self.cumulative_reward,
+                    "iteration": self.current_iteration,
+                    "max_iterations": self.config.max_iterations,
+                    "n_particles": self.simulation.lattice.n_particles,
+                }
+            )
+            # update the logger with info
+            done = self.is_done()
+            truncated = self.current_iteration >= self.config.max_iterations
+            if done or truncated:
+                if done:
+                    self.logger.info("Episode finished")
+                if truncated:
+                    self.logger.info("Episode truncated")
 
-        self.current_time = self.simulation.t
-        self.current_iteration += 1
+                # log nicely formated info from the self.info dict, one item per line
+                self.logger.info("Episode info:")
+                for key, value in self.info.items():
+                    self.logger.info(f"{key}: {value}")
 
-        reward = self.reward()
-        self.cumulative_reward += reward
-        done = self.is_done()
-        self.info = {
-            "time": self.current_time,
-            "action": action,
-            "density": self.simulation.lattice.density,
-            "reward": reward,
-            "cumulative_reward": self.cumulative_reward,
-            "iteration": self.current_iteration,
-            "max_iterations": self.max_iterations,
-            "n_particles": self.simulation.lattice.n_particles,
-            "n_particles_right": self.simulation.lattice.particles[
-                Orientation.RIGHT.value
-            ]
-            .sum()
-            .item(),
-            "n_particles_left": self.simulation.lattice.particles[
-                Orientation.LEFT.value
-            ]
-            .sum()
-            .item(),
-        }
-        truncated = self.current_iteration >= self.max_iterations
-        return self._get_obs(), reward, done, truncated, self.info
+            return self._get_obs(), reward, done, truncated, self.info
+        except Exception as e:
+            self.logger.error(f"Error in step: {e}")
+            sys.exit(1)
 
     def reset(self, seed=None, options=None) -> torch.Tensor:
         """
@@ -164,9 +199,8 @@ class LVMCBaseEnv(gym.Env):
         :param options: Additional options for the environment.
         :return: The initial observation of the environment.
         """
-        if seed is not None:
-            np.random.seed(seed)
-        self._initialize_simulation()
+        self._initialize_simulation(seed=seed)
+        self.current_iteration = 0
 
         obs = self._get_obs()
         return obs, {}
@@ -194,37 +228,43 @@ class LVMCBaseEnv(gym.Env):
         lattice_visualization = self.simulation.lattice.visualize_lattice()
         lattice_text = Text.from_markup(lattice_visualization)
 
-        # Generate additional information as Rich Text. all the info is stored in self.info in different colors
-        info_text = Text.assemble(
-            Text(f"Time: {self.info['time']:.2f}", style="bold white"),
-            Text(f" | "),
-            Text(f"Action: {self.info['action']}", style="bold orange"),
-            Text(f" | "),
-            Text(f"Density: {self.info['density']:.2f}", style="bold pink"),
-            Text(f" | "),
-            Text(f"Iteration: {self.info['iteration']}", style="bold white"),
-            Text(f" | "),
-            Text(f"Reward: {self.info['reward']:.2f}", style="blue"),
-            Text(f" | "),
-            Text(
-                f"Cumulative Reward: {self.info['cumulative_reward']:.2f}",
-                style="bold blue",
-            ),
-            Text(f" | "),
-            Text(
-                f"Max Iterations: {self.info['max_iterations']}", style="bold magenta"
-            ),
-            Text(f" | "),
-            Text(f"Particles: {self.info['n_particles']}", style="bold green"),
-            Text(f" | "),
-            Text(
-                f"Particles Right: {self.info['n_particles_right']}", style="bold green"
-            ),
-            Text(f" | "),
-            Text(
-                f"Particles Left: {self.info['n_particles_left']}", style="bold green"
-            ),
-        )
+        # Known keys with specific styles
+        known_styles = {
+            "time": "bold white",
+            "action": "bold orange",
+            "iteration": "bold white",
+            "reward": "blue",
+            "cumulative_reward": "bold blue",
+            "max_iterations": "bold magenta",
+        }
+
+        # Generate additional information as Rich Text dynamically
+        info_text_parts = []
+        for key, value in self.info.items():
+            # Determine style
+            if key in known_styles:
+                style = known_styles[key]
+            elif "survived" in key.lower():
+                style = "bold green"
+            elif "lost" in key.lower():
+                style = "bold red"
+            else:
+                style = ""
+
+            # Add Text object to list
+            info_text_parts.append(
+                Text(
+                    f"{key.replace('_', ' ').title()}: {f"{value:.3f}".rstrip('0').rstrip('.')}",
+                    style=style,
+                )
+            )
+            info_text_parts.append(Text(" | "))
+
+        # Remove the last separator
+        if info_text_parts:
+            info_text_parts.pop()
+
+        info_text = Text.assemble(*info_text_parts)
 
         # Create the layout and add the lattice visualization and info text to it
         layout = Layout()
@@ -273,15 +313,5 @@ class LVMCBaseEnv(gym.Env):
         Check if the environment is in a terminal state.
 
         :return: A boolean indicating if the environment is in a terminal state.
-        """
-        pass
-
-    def compute_lattice_topology(self) -> dict:
-        """
-        Compute the lattice topology for the environment.
-
-        :param width: The width of the lattice.
-        :param height: The height of the lattice.
-        :return: A dictionary containing the obstacles and sinks in the lattice.
         """
         pass
