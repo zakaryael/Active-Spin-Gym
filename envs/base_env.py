@@ -251,15 +251,16 @@ class LVMCBaseEnv(gym.Env):
             else:
                 style = ""
 
-            # Add Text object to list
+        # Add Text object to list
+            formatted_value = f"{value:.3f}".rstrip('0').rstrip('.')
             info_text_parts.append(
                 Text(
-                    f"{key.replace('_', ' ').title()}: {f"{value:.3f}".rstrip('0').rstrip('.')}",
+                    f"{key.replace('_', ' ').title()}: {formatted_value}",
                     style=style,
                 )
             )
             info_text_parts.append(Text(" | "))
-
+            
         # Remove the last separator
         if info_text_parts:
             info_text_parts.pop()
