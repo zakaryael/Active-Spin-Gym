@@ -1,5 +1,6 @@
-from envs.base_env import LVMCBaseEnv
-from lvmc.core.particle_lattice import Orientation
+from envs.base_env import LVMCBaseEnv, Orientation
+
+# from lvmc.core.particle import Orientation
 import torch
 
 
