@@ -142,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project",
         type=str,
-        default="lvmc-navigateT-v0.1.0",
+        default="lvmc-navigateT-v0.1.1",
         help="WandB project name",
     )
 
