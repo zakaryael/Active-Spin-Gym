@@ -42,3 +42,4 @@ data/
 *.html
 *.gif
 archive/
+examples/xps.ipynb
