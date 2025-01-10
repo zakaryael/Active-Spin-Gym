@@ -123,7 +123,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--control_interval", type=float, default=1e-3, help="Control interval"
     )
-    parser.add_argument("--gravity", type=float, default=1.5, help="Gravity value")
+    parser.add_argument("--g", type=float, default=1.5, help="Alignmenet sensitivity")
     parser.add_argument(
         "--initial_velocity", type=float, default=100, help="Initial velocity"
     )
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project",
         type=str,
-        default="lvmc-navigateT-v0.1.1",
+        default="lvmc-navigateT-v0.1.2",
         help="WandB project name",
     )
 
